@@ -31,7 +31,7 @@ impl VirtIOBlk<'_> {
         let config = unsafe { &mut *(header.config_space() as *mut BlkConfig) };
         info!("config: {:?}", config);
         info!(
-            "found a block device of size {}KB",
+            "found a block device of size {} KB",
             config.capacity.read() / 2
         );
 
@@ -71,6 +71,34 @@ impl VirtIOBlk<'_> {
         }
     }
 
+    /// Read a block non_block
+    pub fn read_block_non_block(&mut self, block_id: usize, buf: &mut [u8]) -> AsyncResult {
+        assert_eq!(buf.len(), BLK_SIZE);
+        let req = BlkReq {
+            type_: ReqType::In,
+            reserved: 0,
+            sector: block_id as u64,
+        };
+        let mut resp = BlkResp::default();
+        self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
+        self.header.notify(0);
+        match self.queue.can_pop() {
+            // 读操作已经完成
+            true => {
+                self.queue.pop_used()?;
+                match resp.status {
+                    RespStatus::Ok => Ok(1),
+                    _ => Err(Error::IoError),
+                }
+            },
+            // 读操作没有完成，不阻塞直接返回
+            // 读操作完成时通过外部中断通知操作系统内核
+            false => {
+                Ok(0)
+            }
+        }
+    }
+
     /// Write a block.
     pub fn write_block(&mut self, block_id: usize, buf: &[u8]) -> Result {
         assert_eq!(buf.len(), BLK_SIZE);
@@ -91,6 +119,35 @@ impl VirtIOBlk<'_> {
             _ => Err(Error::IoError),
         }
     }
+
+    /// Write a block non_block
+    pub fn write_block_non_block(&mut self, block_id: usize, buf: &[u8]) -> AsyncResult {
+        assert_eq!(buf.len(), BLK_SIZE);
+        let req = BlkReq {
+            type_: ReqType::Out,
+            reserved: 0,
+            sector: block_id as u64,
+        };
+        let mut resp = BlkResp::default();
+        self.queue.add(&[req.as_buf(), buf], &[resp.as_buf_mut()])?;
+        self.header.notify(0);
+        match self.queue.can_pop() {
+            // 读操作已经完成
+            true => {
+                self.queue.pop_used()?;
+                match resp.status {
+                    RespStatus::Ok => Ok(1),
+                    _ => Err(Error::IoError),
+                }
+            },
+            // 读操作没有完成，不阻塞直接返回
+            // 读操作完成时通过外部中断通知操作系统内核
+            false => {
+                Ok(0)
+            }
+        }
+    }
+
 }
 
 #[repr(C)]

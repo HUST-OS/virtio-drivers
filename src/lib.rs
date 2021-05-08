@@ -30,6 +30,9 @@ const PAGE_SIZE: usize = 0x1000;
 /// The type returned by driver methods.
 pub type Result<T = ()> = core::result::Result<T, Error>;
 
+/// The type returned by async driver methods
+pub type AsyncResult<T = usize> = core::result::Result<T, Error>;
+
 // pub struct Error {
 //     kind: ErrorKind,
 //     reason: &'static str,
