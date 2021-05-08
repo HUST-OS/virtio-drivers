@@ -1,9 +1,10 @@
 //! VirtIO guest drivers.
 
 #![no_std]
-#![deny(unused_must_use, missing_docs)]
+#![deny(unused_must_use)]
 #![allow(clippy::identity_op)]
 #![allow(dead_code)]
+#![feature(llvm_asm)]
 
 // #[macro_use]
 extern crate log;
@@ -15,6 +16,8 @@ mod header;
 mod input;
 mod net;
 mod queue;
+mod sbi;
+mod console;
 
 pub use self::blk::VirtIOBlk;
 pub use self::gpu::VirtIOGpu;

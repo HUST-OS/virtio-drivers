@@ -22,7 +22,7 @@ impl VirtIOBlk<'_> {
         header.verify();
         header.begin_init(|features| {
             let features = BlkFeature::from_bits_truncate(features);
-            info!("device features: {:?}", features);
+            println!("device features: {:?}", features);
             // negotiate these flags only
             let supported_features = BlkFeature::empty();
             (features & supported_features).bits()
@@ -30,8 +30,8 @@ impl VirtIOBlk<'_> {
 
         // read configuration space
         let config = unsafe { &mut *(header.config_space() as *mut BlkConfig) };
-        info!("config: {:?}", config);
-        info!(
+        println!("config: {:?}", config);
+        println!(
             "found a block device of size {} KB",
             config.capacity.read() / 2
         );
