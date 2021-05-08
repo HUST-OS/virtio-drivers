@@ -3,7 +3,6 @@ use crate::header::VirtIOHeader;
 use crate::queue::VirtQueue;
 use bitflags::*;
 use core::hint::spin_loop;
-use log::*;
 use volatile::Volatile;
 
 /// The virtio block device is a simple virtual block device (ie. disk).
@@ -19,7 +18,7 @@ pub struct VirtIOBlk<'a> {
 impl VirtIOBlk<'_> {
     /// Create a new VirtIO-Blk driver.
     pub fn new(header: &'static mut VirtIOHeader) -> Result<Self> {
-        header.verify();
+        assert!(header.verify());
         header.begin_init(|features| {
             let features = BlkFeature::from_bits_truncate(features);
             println!("device features: {:?}", features);
