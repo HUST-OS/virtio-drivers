@@ -19,6 +19,7 @@ pub struct VirtIOBlk<'a> {
 impl VirtIOBlk<'_> {
     /// Create a new VirtIO-Blk driver.
     pub fn new(header: &'static mut VirtIOHeader) -> Result<Self> {
+        header.verify();
         header.begin_init(|features| {
             let features = BlkFeature::from_bits_truncate(features);
             info!("device features: {:?}", features);
