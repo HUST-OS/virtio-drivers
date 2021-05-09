@@ -78,8 +78,8 @@ impl VirtIOBlk<'_> {
         }
     }
 
-    /// Read a block non_block
-    pub fn read_block_non_block(&mut self, block_id: usize, buf: &mut [u8]) -> AsyncResult {
+    /// 非阻塞读取块
+    pub fn read_block_non_block(&mut self, block_id: usize, buf: &mut [u8]) -> nb::Result<(), Error> {
         assert_eq!(buf.len(), BLK_SIZE);
         let req = BlkReq {
             type_: ReqType::In,
@@ -96,14 +96,14 @@ impl VirtIOBlk<'_> {
             true => {
                 self.queue.pop_used()?;
                 match resp.status {
-                    RespStatus::Ok => Ok(1),
-                    _ => Err(Error::IoError),
+                    RespStatus::Ok => Ok(()),
+                    _ => Err(nb::Error::Other(Error::IoError)),
                 }
             },
             // 读操作没有完成，不阻塞直接返回
             // 读操作完成时通过外部中断通知操作系统内核
             false => {
-                Ok(0)
+                Err(nb::Error::WouldBlock)
             }
         }
     }
@@ -129,8 +129,8 @@ impl VirtIOBlk<'_> {
         }
     }
 
-    /// Write a block non_block
-    pub fn write_block_non_block(&mut self, block_id: usize, buf: &[u8]) -> AsyncResult {
+    /// 非阻塞写入块
+    pub fn write_block_non_block(&mut self, block_id: usize, buf: &[u8]) -> nb::Result<(), Error> {
         assert_eq!(buf.len(), BLK_SIZE);
         let req = BlkReq {
             type_: ReqType::Out,
@@ -147,18 +147,32 @@ impl VirtIOBlk<'_> {
             true => {
                 self.queue.pop_used()?;
                 match resp.status {
-                    RespStatus::Ok => Ok(1),
-                    _ => Err(Error::IoError),
+                    RespStatus::Ok => Ok(()),
+                    _ => Err(nb::Error::Other(Error::IoError))
                 }
             },
             // 读操作没有完成，不阻塞直接返回
-            // 读操作完成时通过外部中断通知操作系统内核
+            // 读操作完成时通过 virtio 外部中断通知操作系统内核
             false => {
-                Ok(0)
+                Err(nb::Error::WouldBlock)
             }
         }
     }
 
+    /// 处理 virtio 外部中断
+    pub fn handle_interrupt(&mut self) -> Result<ReadyBlock> {
+        if !self.queue.can_pop() { return Err(Error::IoError); }
+        let (idx, _len) = self.queue.pop_used()
+            .expect("[virtio_blk] virtio block device data not ready but enter its interrupt handler.");
+        let desc = self.queue.get_desc(idx as usize);
+        let req = unsafe { &*(desc.addr.read() as *const BlkReq) };
+        let ret = match req.type_ {
+            ReqType::In => ReadyBlock::Read(req.sector as usize),
+            ReqType::Out => ReadyBlock::Write(req.sector as usize),
+            _ => ReadyBlock::Other
+        };
+        Ok(ret)
+    }
 }
 
 #[repr(C)]
@@ -273,3 +287,13 @@ bitflags! {
 
 unsafe impl AsBuf for BlkReq {}
 unsafe impl AsBuf for BlkResp {}
+
+/// 中断响应返回准备好的块
+pub enum ReadyBlock {
+    /// 读请求完成的块
+    Read(usize),
+    /// 写操作请求完成的块
+    Write(usize),
+    /// 其他
+    Other
+}

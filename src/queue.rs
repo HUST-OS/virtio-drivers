@@ -173,8 +173,12 @@ impl VirtQueue<'_> {
     }
 
     /// get current idx
-    pub fn get_desc_idx(&self)->usize {
+    pub fn get_desc_idx(&self) -> usize {
         self.free_head as usize
+    }
+
+    pub fn get_desc(&self, id : usize) -> Descriptor {
+        self.desc[id].clone()
     }
 }
 
@@ -207,11 +211,22 @@ impl VirtQueueLayout {
 
 #[repr(C, align(16))]
 #[derive(Debug)]
-struct Descriptor {
-    addr: Volatile<u64>,
+pub struct Descriptor {
+    pub addr: Volatile<u64>,
     len: Volatile<u32>,
     flags: Volatile<DescFlags>,
     next: Volatile<u16>,
+}
+
+impl Clone for Descriptor {
+    fn clone(&self) -> Self {
+        Self {
+            addr : Volatile::<u64>::new(self.addr.read()),
+            len : Volatile::<u32>::new(self.len.read()),
+            flags : Volatile::<DescFlags>::new(self.flags.read()),
+            next : Volatile::<u16>::new(self.next.read()),
+        }
+    }
 }
 
 impl Descriptor {
