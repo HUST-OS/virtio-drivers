@@ -15,22 +15,25 @@ use volatile::Volatile;
 pub struct VirtQueue<'a> {
     /// DMA guard
     dma: DMA,
-    /// Descriptor table
+    /// 描述符表
     desc: &'a mut [Descriptor],
-    /// Available ring
+    /// 可用环
     avail: &'a mut AvailRing,
-    /// Used ring
+    /// 已用环
     used: &'a mut UsedRing,
-
-    /// The index of queue
+    /// 虚拟队列索引值
+    /// 一个虚拟设备实现可能跟有多个虚拟队列
     queue_idx: u32,
-    /// The size of queue
+    /// 虚拟队列长度
     queue_size: u16,
-    /// The number of used queues.
+    /// 已经使用的队列项目数
     num_used: u16,
-    /// The head desc index of the free list.
+    /// 空闲描述符链表头
+    /// 初始时所有描述符通过 next 指针依次相连形成空闲链表
     free_head: u16,
+    /// 可用环的索引值
     avail_idx: u16,
+    /// 设备上次已取的已用环元素位置
     last_used_idx: u16,
 }
 
@@ -46,16 +49,19 @@ impl VirtQueue<'_> {
         let layout = VirtQueueLayout::new(size);
         // alloc continuous pages
         let dma = DMA::new(layout.size / PAGE_SIZE)?;
-        println!("dma.paddr: {:#x}", dma.paddr());
+        // println!("dma.paddr: {:#x}", dma.paddr());
 
         header.queue_set(idx as u32, size as u32, PAGE_SIZE as u32, dma.pfn());
 
+        // 描述符表起始地址
         let desc =
             unsafe { slice::from_raw_parts_mut(dma.vaddr() as *mut Descriptor, size as usize) };
+        // 可用环起始地址
         let avail = unsafe { &mut *((dma.vaddr() + layout.avail_offset) as *mut AvailRing) };
+        // 已用环起始地址
         let used = unsafe { &mut *((dma.vaddr() + layout.used_offset) as *mut UsedRing) };
 
-        // link descriptors together
+        // 将空闲描述符连成链表
         for i in 0..(size - 1) {
             desc[i as usize].next.write(i + 1);
         }
@@ -82,10 +88,11 @@ impl VirtQueue<'_> {
             return Err(Error::InvalidParam);
         }
         if inputs.len() + outputs.len() + self.num_used as usize > self.queue_size as usize {
+            // todo: 这里错误语义不符
             return Err(Error::BufferTooSmall);
         }
 
-        // allocate descriptors from free list
+        // 从空闲描述符链表中分配描述符
         let head = self.free_head;
         let mut last = self.free_head;
         for input in inputs.iter() {
@@ -102,7 +109,7 @@ impl VirtQueue<'_> {
             last = self.free_head;
             self.free_head = desc.next.read();
         }
-        // set last_elem.next = NULL
+        // 设置描述符链的最后一个元素的 next 位为 0
         {
             let desc = &mut self.desc[last as usize];
             let mut flags = desc.flags.read();
@@ -111,10 +118,11 @@ impl VirtQueue<'_> {
         }
         self.num_used += (inputs.len() + outputs.len()) as u16;
 
+        // 将描述符链的头部吸入可用环中
         let avail_slot = self.avail_idx & (self.queue_size - 1);
         self.avail.ring[avail_slot as usize].write(head);
 
-        // write barrier
+        // write barrier(内存屏障操作？)
         fence(Ordering::SeqCst);
 
         // increase head of avail ring
@@ -170,11 +178,6 @@ impl VirtQueue<'_> {
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
         Ok((index, len))
-    }
-
-    /// get current idx
-    pub fn get_desc_idx(&self) -> usize {
-        self.free_head as usize
     }
 
     pub fn get_desc(&self, id : usize) -> Descriptor {
@@ -251,8 +254,10 @@ bitflags! {
 #[repr(C)]
 #[derive(Debug)]
 struct AvailRing {
+    /// 与通知机制相关
     flags: Volatile<u16>,
-    /// A driver MUST NOT decrement the idx.
+    ///  最新放入 IO 请求的编号
+    /// 从零开始递增
     idx: Volatile<u16>,
     ring: [Volatile<u16>; 32], // actual size: queue_size
     used_event: Volatile<u16>, // unused

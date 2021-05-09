@@ -14,7 +14,6 @@ pub struct VirtIOBlk<'a> {
     header: &'static mut VirtIOHeader,
     queue: VirtQueue<'a>,
     capacity: usize,
-    req_queue: [BlkReq; QUEUE_SIZE],
 }
 
 impl VirtIOBlk<'_> {
@@ -43,12 +42,7 @@ impl VirtIOBlk<'_> {
         Ok(VirtIOBlk {
             header,
             queue,
-            capacity: config.capacity.read() as usize,
-            req_queue: [BlkReq {
-                type_: ReqType::In,
-                reserved: 0,
-                sector: 0
-            }; QUEUE_SIZE]
+            capacity: config.capacity.read() as usize
         })
     }
 
@@ -86,10 +80,8 @@ impl VirtIOBlk<'_> {
             reserved: 0,
             sector: block_id as u64,
         };
-        let idx = self.queue.get_desc_idx();
-        self.req_queue[idx] = req;
         let mut resp = BlkResp::default();
-        self.queue.add(&[self.req_queue[idx].as_buf()], &[buf, resp.as_buf_mut()])?;
+        self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
         self.header.notify(0);
         match self.queue.can_pop() {
             // 读操作已经完成
@@ -137,10 +129,8 @@ impl VirtIOBlk<'_> {
             reserved: 0,
             sector: block_id as u64,
         };
-        let idx = self.queue.get_desc_idx();
-        self.req_queue[idx] = req;
         let mut resp = BlkResp::default();
-        self.queue.add(&[self.req_queue[idx].as_buf(), buf], &[resp.as_buf_mut()])?;
+        self.queue.add(&[req.as_buf(), buf], &[resp.as_buf_mut()])?;
         self.header.notify(0);
         match self.queue.can_pop() {
             // 读操作已经完成
@@ -178,13 +168,15 @@ impl VirtIOBlk<'_> {
 #[repr(C)]
 #[derive(Debug)]
 struct BlkConfig {
-    /// Number of 512 Bytes sectors
+    /// 扇区数目
     capacity: Volatile<u64>,
     size_max: Volatile<u32>,
     seg_max: Volatile<u32>,
     cylinders: Volatile<u16>,
     heads: Volatile<u8>,
     sectors: Volatile<u8>,
+    /// 扇区大小
+    /// todo: 改名
     blk_size: Volatile<u32>,
     physical_block_exp: Volatile<u8>,
     alignment_offset: Volatile<u8>,
