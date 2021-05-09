@@ -46,6 +46,7 @@ impl VirtQueue<'_> {
         let layout = VirtQueueLayout::new(size);
         // alloc continuous pages
         let dma = DMA::new(layout.size / PAGE_SIZE)?;
+        println!("dma.paddr: {:#x}", dma.paddr());
 
         header.queue_set(idx as u32, size as u32, PAGE_SIZE as u32, dma.pfn());
 
@@ -169,6 +170,11 @@ impl VirtQueue<'_> {
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
         Ok((index, len))
+    }
+
+    /// get current idx
+    pub fn get_desc_idx(&self)->usize {
+        self.free_head as usize
     }
 }
 

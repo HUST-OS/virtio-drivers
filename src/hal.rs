@@ -3,6 +3,7 @@ use super::*;
 type VirtAddr = usize;
 type PhysAddr = usize;
 
+#[derive(Debug)]
 pub struct DMA {
     paddr: u32,
     pages: u32,

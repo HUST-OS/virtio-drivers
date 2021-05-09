@@ -5,6 +5,7 @@ use bitflags::*;
 use core::hint::spin_loop;
 use volatile::Volatile;
 
+const QUEUE_SIZE : usize = 16;
 /// The virtio block device is a simple virtual block device (ie. disk).
 ///
 /// Read and write requests (and other exotic requests) are placed in the queue,
@@ -13,6 +14,7 @@ pub struct VirtIOBlk<'a> {
     header: &'static mut VirtIOHeader,
     queue: VirtQueue<'a>,
     capacity: usize,
+    req_queue: [BlkReq; QUEUE_SIZE],
 }
 
 impl VirtIOBlk<'_> {
@@ -35,13 +37,18 @@ impl VirtIOBlk<'_> {
             config.capacity.read() / 2
         );
 
-        let queue = VirtQueue::new(header, 0, 16)?;
+        let queue = VirtQueue::new(header, 0, QUEUE_SIZE as u16)?;
         header.finish_init();
 
         Ok(VirtIOBlk {
             header,
             queue,
             capacity: config.capacity.read() as usize,
+            req_queue: [BlkReq {
+                type_: ReqType::In,
+                reserved: 0,
+                sector: 0
+            }; QUEUE_SIZE]
         })
     }
 
@@ -79,8 +86,10 @@ impl VirtIOBlk<'_> {
             reserved: 0,
             sector: block_id as u64,
         };
+        let idx = self.queue.get_desc_idx();
+        self.req_queue[idx] = req;
         let mut resp = BlkResp::default();
-        self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
+        self.queue.add(&[self.req_queue[idx].as_buf()], &[buf, resp.as_buf_mut()])?;
         self.header.notify(0);
         match self.queue.can_pop() {
             // 读操作已经完成
@@ -128,8 +137,10 @@ impl VirtIOBlk<'_> {
             reserved: 0,
             sector: block_id as u64,
         };
+        let idx = self.queue.get_desc_idx();
+        self.req_queue[idx] = req;
         let mut resp = BlkResp::default();
-        self.queue.add(&[req.as_buf(), buf], &[resp.as_buf_mut()])?;
+        self.queue.add(&[self.req_queue[idx].as_buf(), buf], &[resp.as_buf_mut()])?;
         self.header.notify(0);
         match self.queue.can_pop() {
             // 读操作已经完成
@@ -169,7 +180,7 @@ struct BlkConfig {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct BlkReq {
     type_: ReqType,
     reserved: u32,
@@ -183,7 +194,7 @@ struct BlkResp {
 }
 
 #[repr(u32)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum ReqType {
     In = 0,
     Out = 1,
